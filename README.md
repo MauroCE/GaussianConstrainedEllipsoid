@@ -1,6 +1,8 @@
 # Gaussian Constrained around Ellipsoid
 Experiments about sampling from a Gaussian constrained to be around an ellipsoid
 
+![Gaussian constrained around an ellipsoid](images/isotropic_bivariate_normal_concentrated_ellipse.png)
+
 ### Problem Description
 Let $\upsilon$ be an isotropic Gaussian on $(\mathbb{R}^d, \mathcal{B}(\mathbb{R}^d))$. We wish to concentrate this distribution around an ellipsoid using a uniform kernel and sample from it. More precisely, given a tolerance $\epsilon > 0$, our target distribution is
 
