@@ -13,4 +13,5 @@ where $\mathbb{I}$ is the indicator function, $f$ is a smooth map whose level se
 $$
 f(x) = \log\mathcal{N}(x \mid 0_d, \Sigma) - \log c,
 $$
-for a covariance matrix $\Sigma$ and a level set value $c > 0$.
+
+for a covariance matrix $\Sigma$ and a level set value $c > 0$. We target this distribution using [Integrator Snippets](https://arxiv.org/abs/2404.13302) and SMC samplers.
