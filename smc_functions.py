@@ -9,7 +9,7 @@ def mh_kernel(x0, T, step_thug, step_snug, epsilon_target, p_thug, rng=None):
     is vectorised, meaning it acts on all particles at once. x0 is assumed to be
     a matrix of shape (n_alive_particles, 20). """
     rng = np.random.default_rng(seed=np.random.randint(low=0, high=10000)) if rng is None else rng
-    n_alive = x0.shape[0]
+    n_alive, d = x0.shape
     # Sample ι for each particle to determine which kernel to use
     iotas = rng.binomial(n=1, p=p_thug, size=n_alive)
     # Choose step size and sign based on ι
@@ -17,7 +17,7 @@ def mh_kernel(x0, T, step_thug, step_snug, epsilon_target, p_thug, rng=None):
     half_step = np.where(thug_flag, 0.5*step_thug, 0.5*step_snug)     # (N_alive,)
     s = np.where(thug_flag, 1, -1)                                    # (N_alive, )
     # Sample all velocities and all log-uniform variables at once
-    v0s = rng.normal(loc=0.0, scale=1.0, size=(n_alive, T))            # (N, B)
+    v0s = rng.normal(loc=0.0, scale=1.0, size=(n_alive, T, d))            # (N, B)
     logus = np.log(rng.uniform(low=0.0, high=1.0, size=(n_alive, T)))  # (N, B)
     # Acceptance probabilities for each particle
     aps = np.zeros((n_alive, T))
@@ -48,18 +48,18 @@ def mh_kernel(x0, T, step_thug, step_snug, epsilon_target, p_thug, rng=None):
     return x0, iotas, aps.mean(axis=1), esjd / T, esjd_snug/T, esjd_thug/T
 
 
-def smc_algorithm(x, epsilons, N=5000, T=10, step_thug=0.01, step_snug=0.01, p_thug=0.5, snug_min_step=1e-30,
-                  snug_max_step=100.0, snug_target=0.5, min_ap=1e-2, verbose=True, rng=None):
+def smc(x, epsilons, N=5000, T=10, step_thug=0.01, step_snug=0.01, p_thug=0.5, snug_min_step=1e-30, snug_max_step=100.0,
+        snug_target=0.5, min_ap=1e-2, verbose=True, rng=None):
     """Implements an SMC sampler with mixture of HUG and NHUG kernels."""
     start_time = time.time()
     rng = np.random.default_rng(seed=np.random.randint(low=0, high=10000)) if rng is None else rng
     w = np.repeat(1/N, N)
-    out = {'ess': [], 'thug_ap': [1.0], 'runtime': 0.0, 'epsilons': epsilons}
+    out = {'ess': [], 'thug_ap': [1.0], 'runtime': 0.0, 'epsilons': epsilons, 'esjd': []}
     verboseprint = print if verbose else lambda *a, **k: None
 
     n = 0
     try:
-        while out['pm_thug'][-1] > min_ap and n < len(epsilons)-1:
+        while out['thug_ap'][-1] > min_ap and n < len(epsilons)-1:
             verboseprint("Iteration: ", n, " Epsilon: ", epsilons[n])
 
             # --- RESAMPLE PARTICLES ---
@@ -78,17 +78,17 @@ def smc_algorithm(x, epsilons, N=5000, T=10, step_thug=0.01, step_snug=0.01, p_t
             verboseprint("\tAlive: ", len(alive))
             aps = np.zeros(N)
             esjd = np.zeros(N)
-            esjd_thug = np.zeros(N)
-            esjd_snug = np.zeros(N)
-            x[alive], iotas, aps[alive], esjd[alive], esjd_thug[alive], esjd_snug[alive] = mh_kernel(
+            x[alive], iotas, aps[alive], esjd[alive], esjd_thug_alive, esjd_snug_alive = mh_kernel(
                 x0=x[alive], T=T, step_thug=step_thug, step_snug=step_snug, epsilon_target=epsilons[n],
                 p_thug=p_thug, rng=rng)
+            out['esjd'].append(esjd.mean())
             verboseprint("\tParticles Mutated.")
             verboseprint("\tESJD: ", esjd.mean())
 
             # --- ESTIMATE ACCEPTANCE PROBABILITY ---
             thug_ap = aps[alive][iotas == 1].mean()
             snug_ap = aps[alive][iotas == 0].mean()
+            out['thug_ap'].append(thug_ap)
             verboseprint("\tTHUG AP:  {:.16f}".format(thug_ap))
             verboseprint("\tNHUG AP:  {:.16f}".format(snug_ap))
 

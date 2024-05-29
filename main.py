@@ -4,6 +4,7 @@ User provides a fixed final tolerance `eps_final` and we use the budget in diffe
 import pickle
 import numpy as np
 from ghums_functions import ghums
+from smc_functions import smc
 
 
 if __name__ == "__main__":
@@ -71,6 +72,10 @@ if __name__ == "__main__":
                               rng=rng)
             OUTS['ghums'].append(out_ghums)
             # Run SMC sampler on this sequence of epsilons
+            # TODO: Add test functions implementation
+            out_smc = smc(x=x0, epsilons=epsilons, N=N, T=T, step_thug=step_thug, step_snug=step_snug, p_thug=p_thug,
+                          snug_target=0.5, min_ap=1e-2, verbose=True, rng=rng)
+            OUTS['smc'].append(out_smc)
 
     # Save results
     with open("data/ghums_vs_smc.pkl", "wb") as f:
