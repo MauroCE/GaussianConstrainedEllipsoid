@@ -42,29 +42,53 @@ def thug_integrator(x, v, iotas, T, step_thug, step_snug):
     return xnk
 
 
-def ghums(x, v, N, T,  funcs, epsilons, p_thug=0.8, step_thug=0.1, step_snug=0.01, endpoint=False, adapt_snug=False, snug_target=0.5, δNHUG_min=1e-30, δNHUG_max=100.0, min_pm=1e-2, verbose=True, rng=None):
+def esjd_a(fnk, w):
+    """Computes ESJD of type A."""
+    T = fnk.shape[1]-1
+    ESJD = 0.0
+    w_denominator = w.sum(axis=0)
+    for k_ix in range(T+1):
+        for l_ix in range(k_ix+1, T+1):
+            wl = w[:, l_ix]/w_denominator[l_ix] if w_denominator[l_ix] > 0 else 0.0
+            wk = w[:, k_ix]/w_denominator[k_ix] if w_denominator[k_ix] > 0 else 0.0
+            ESJD += np.sum((fnk[:, l_ix]*wl - fnk[:, k_ix]*wk)**2)
+    return ESJD / ((T+1)**2)
+
+
+def esjd_b(fnk, w, lse_w):
+    """Computes ESJD of type B."""
+    fnk_weighted = fnk * w
+    # Utilize broadcasting and vectorization for computations
+    differences = fnk_weighted[:, None, :] - fnk_weighted[:, :, None]
+    squared_differences = np.sum(differences ** 2, axis=0)
+    # Efficient summation across the required range
+    ESJD = np.triu(squared_differences, k=1).sum()
+    return ESJD / np.exp(2 * lse_w)
+
+
+def ghums(x, v, N, T,  funcs, epsilons, p_thug=0.8, step_thug=0.1, step_snug=0.01, endpoint=False, adapt_snug=False,
+          snug_target=0.5, snug_min_step=1e-30, snug_max_step=100.0, min_pm=1e-2, verbose=True, rng=None):
     """GHUMS Algorithm. Allows both endpoint and non-endpoint versions. This on requires a fixed epsilon schedule."""
     start_time = time.time()
     rng = np.random.default_rng(seed=np.random.randint(low=0, high=10000)) if rng is None else rng
     d = x.shape[1]
+    nf = len(funcs)
     T_size = T if not endpoint else 1  # to allow correct size of arrays for both endpoint and not endpoint versions
+    logw = np.full(N*(T+1), np.nan)
+    xnk = np.full(shape=(N, T_size+1, d), fill_value=np.nan)
 
     # Storage
-    out = {}
-    pm_thug = 1.0
+    out = {'pm_thug': [1.0], 'mip_snug': [], 'snug_steps': [step_snug], 'runtime': 0.0, 'folded_ess': [],
+           'epsilons': epsilons}
     verboseprint = print if verbose else lambda *a, **k: None
 
     # Initialization (MAKE IT 2D)
     iotas = np.array(rng.binomial(n=1, p=p_thug, size=N))  # 1 == THUG, 0 == SNUG
 
+    n = 0
     try:
-        for eps_ix, epsilon in enumerate(epsilons):
-            # Check if termination criterion has been reached
-            if pm_thug <= min_pm:
-                verboseprint("Termination criterion reached.")
-                return out
-            n = eps_ix + 1
-            verboseprint("Iteration: ", n)
+        while out['pm_thug'][-1] > min_pm and n < len(epsilons)-1:
+            verboseprint("Iteration: ", n, " Epsilon: ", epsilons[n])
 
             # --- CONSTRUCT TRAJECTORIES ---
             xnk = thug_integrator(x=x, v=v, iotas=iotas, T=T, step_thug=step_thug, step_snug=step_snug)  # (N, T+1, d)
@@ -72,9 +96,12 @@ def ghums(x, v, N, T,  funcs, epsilons, p_thug=0.8, step_thug=0.1, step_snug=0.0
             verboseprint("\tTrajectories constructed.")
 
             # --- COMPUTE WEIGHTS ---
-            logw = log_post3d(xnk, epsilons[n]) - log_post3d(xnk[:, :1], epsilons[n-1])
+            logw = log_post3d(xnk, epsilons[n+1]) - log_post3d(xnk[:, :1], epsilons[n])
             W = np.exp(logw - logsumexp(logw))    # normalized weights, (N, T+1)
-            verboseprint("\tWeights computed and normalized.")
+            logw_folded = logsumexp(logw, axis=1) - np.log(T+1)  # folded weights
+            W_folded = np.exp(logw_folded - logsumexp(logw_folded))
+            out['folded_ess'].append(1 / np.sum(W_folded**2))
+            verboseprint("\tWeights computed and normalized. Folded ESS {:.3f}".format(out['folded_ess'][-1]))
 
             # --- RESAMPLING ---
             indices = rng.choice(a=N*(T+1), size=N, replace=True, p=W.ravel())   # (N, )
@@ -89,6 +116,7 @@ def ghums(x, v, N, T,  funcs, epsilons, p_thug=0.8, step_thug=0.1, step_snug=0.0
             except (ZeroDivisionError, IndexError):
                 verboseprint("\tPM for THUG could not be estimated. Setting it to zero.")
                 pm_thug = 0.0
+            out['pm_thug'].append(pm_thug)
 
             # ADAPT STEP SIZE FOR NHUG
             if adapt_snug:
@@ -97,8 +125,12 @@ def ghums(x, v, N, T,  funcs, epsilons, p_thug=0.8, step_thug=0.1, step_snug=0.0
                 except (ZeroDivisionError, IndexError):
                     verboseprint("\tMIP for SNUG could not be estimated. Setting it to zero.")
                     mip_snug = 0.0
-                step_snug = np.clip(np.exp(np.log(step_snug) + 0.5 * (mip_snug - snug_target)), δNHUG_min, δNHUG_max)
+                out['mip_snug'].append(mip_snug)
+                step_snug = np.clip(
+                    np.exp(np.log(step_snug) + 0.5 * (mip_snug - snug_target)), snug_min_step, snug_max_step
+                )
                 verboseprint("\tSNUG Step size adapted to {:.31f}".format(step_snug))
+                out['snug_steps'].append(step_snug)
 
             # REJUVENATE AUXILIARIES (VELOCITIES + IOTAS)
             v = rng.normal(size=(N, d))
@@ -108,47 +140,21 @@ def ghums(x, v, N, T,  funcs, epsilons, p_thug=0.8, step_thug=0.1, step_snug=0.0
             n += 1
     except (ValueError, KeyboardInterrupt) as e:
         verboseprint("ValueError was raised: ", e)
-        return {
-        'εs': εs,
-        'total_time': (time() - start_time)
-        }
-    # Compute quantities before ending the algorithm (we assume I won't be interrupting anything)
-    total_time = time() - start_time
-    w = exp(logw)
-    logsumexp_w = logsumexp(logw)
-    EXs_A, EXs_B, ESJDs_A, ESJDs_B = zeros(d), zeros(d), zeros(d), zeros(d)
-    ESJDs_A_THUG = zeros(d)
-    ESJDs_B_THUG = zeros(d)
-    ESJDs_A_NHUG = zeros(d)
-    ESJDs_B_NHUG = zeros(d)
-    for coord in range(d):
-        EXs_A[coord] = estimate_expectation_a(XNK[:, :, coord], w=w)
-        EXs_B[coord] = estimate_expectation_b(XNK[:, :, coord], logw=logw)
-        ESJDs_A[coord] = compute_esjd_a(XNK[:,:, coord], w=w)
-        ESJDs_B[coord] = compute_esjd_b(XNK[:,:, coord], w=w, logsumexp_w=logsumexp_w)
-        ESJDs_A_NHUG[coord] = compute_esjd_a(XNK[ι==0,:, coord], w=w[ι==0])
-        ESJDs_B_NHUG[coord] = compute_esjd_b(XNK[ι==0,:, coord], w=w[ι==0], logsumexp_w=logsumexp(logw[ι==0]))
-        ESJDs_A_THUG[coord] = compute_esjd_a(XNK[ι==1,:, coord], w=w[ι==1])
-        ESJDs_B_THUG[coord] = compute_esjd_b(XNK[ι==1,:, coord], w=w[ι==1], logsumexp_w=logsumexp(logw[ι==1]))
-    EfXs_A, EfXs_B = zeros(len(funcs)), zeros(len(funcs))
+        out['runtime'] = time.time() - start_time
+        return out
+    out['runtime'] = time.time() - start_time
+    # For this repo we only need to compute ESJD-A, ESJD-B for the test functions
+    w = np.exp(logw)         # un-normalized log weights (N, T+1)
+    lse_w = logsumexp(logw)  # scalar, log-sum-exp of un-normalized log weights
+    out['ESJD-A'], out['ESJD-B'], out['ESJD-A-THUG'] = np.zeros(nf), np.zeros(nf), np.zeros(nf)
+    out['ESJD-B-THUG'], out['ESJD-A-SNUG'], out['ESJD-B-SNUG'] = np.zeros(nf), np.zeros(nf), np.zeros(nf)
     for fix, f in enumerate(funcs):
-        fnk = apply_along_axis(f, 2, XNK)
-        EfXs_A[fix] = estimate_expectation_a(fnk, w=w)
-        EfXs_B[fix] = estimate_expectation_b(fnk, logw=logw)
-    return {
-    'εs': εs,
-    'EXs_A': EXs_A,
-    'EXs_B': EXs_B,
-    'ESJDs_A': ESJDs_A,
-    'ESJDs_B': ESJDs_B,
-    'EfXs_A': EfXs_A,
-    'EfXs_B': EfXs_B,
-    'ESJDs_A_THUG': ESJDs_A_THUG,
-    'ESJDs_B_THUG': ESJDs_B_THUG,
-    'ESJDs_A_NHUG': ESJDs_A_NHUG,
-    'ESJDs_B_NHUG': ESJDs_B_NHUG,
-    'total_time': total_time,
-    'n': n,
-    'total_time': total_time,
-    'PROP_MOVED_THUG': prop_moved_hug
-    }
+        fnk = np.apply_along_axis(f, 2, xnk)
+        out['ESJD-A'][fix] = esjd_a(fnk, w)
+        out['ESJD-B'][fix] = esjd_b(fnk, w, lse_w)
+        out['ESJD-A-THUG'][fix] = esjd_a(fnk[iotas == 1], w[iotas == 1])
+        out['ESJD-B-THUG'][fix] = esjd_b(fnk[iotas == 1], w[iotas == 1], lse_w=logsumexp(logw[iotas == 1]))
+        out['ESJD-A-SNUG'][fix] = esjd_a(fnk[iotas == 0], w[iotas == 0])
+        out['ESJD-B-SNUG'][fix] = esjd_b(fnk[iotas == 0], w[iotas == 0], lse_w=logsumexp(logw[iotas == 0]))
+    verboseprint("Final epsilon: ", epsilons[n], " ESJD-A: ", out['ESJD-A'][0])
+    return out
