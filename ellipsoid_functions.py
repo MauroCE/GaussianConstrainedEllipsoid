@@ -47,7 +47,7 @@ def log_post(x, epsilon):
     :param epsilon: Tolerance for the indicator function
     :type epsilon: float
     :return: Log posterior densities at each row of x, resulting in a (N, ) array
-    :rtype: float
+    :rtype: np.ndarray
     """
     d = x.shape[1]
     log_density_values = np.full(len(x), -np.inf)
