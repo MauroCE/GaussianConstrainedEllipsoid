@@ -5,7 +5,7 @@ from matplotlib import rc
 
 
 # Load data
-with open("data/ghums_vs_smc_budget_.pkl", "rb") as f:
+with open("data/ghums_vs_smc_budget_15000000.pkl", "rb") as f:
     data = pickle.load(f)
 
 # Cast data into plotting form
@@ -45,6 +45,7 @@ for rix in range(len(Ns)):
         ax[rix, cix].set_xscale('log')
         ax[rix, cix].set_yscale('log')
         ax[rix, cix].set_xticks(Ts)
+        ax[rix, cix].set_yticks(np.geomspace(start=1e-11, stop=1e-1, endpoint=True, num=11))
         ax[rix, cix].grid(True, color='gainsboro')
         if cix == 0:
             ax[rix, cix].set_ylabel(esjd_label)
@@ -53,5 +54,5 @@ for cix in range(d):
     ax[0, cix].set_title(f"Coordinate {cix+1}")
 plt.legend()
 plt.tight_layout()
-# plt.savefig("images/ghums_vs_smc_efficiency_type{}.png".format(esjd_type.lower()), dpi=300)
+plt.savefig("images/ghums_vs_smc_efficiency_type{}_budget{}.png".format(esjd_type.lower(), budget), dpi=300)
 plt.show()
