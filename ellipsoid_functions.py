@@ -2,7 +2,14 @@ import numpy as np
 
 
 def level_set(d):
-    """Computes a good level set for a dimension."""
+    """Computes a good level set value for a dimension of the Gaussian distribution corresponding to the ellipsoids
+    of interest. This means that our constraint function will be `log_density(x) - level_set(d)`.
+
+    Parameters
+    ----------
+    :param d: Dimension of the Gaussian distribution
+    :type d: int
+    """
     return np.ceil(0.5*(d//2)*np.log(10) - (d//2)*np.log(2*np.pi) - 0.5*(1.1*(d//2)))
 
 

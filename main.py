@@ -10,7 +10,7 @@ from smc_functions import smc
 if __name__ == "__main__":
     # Settings
     d = 2
-    budget = 12_000_000
+    budget = 15_000_000
     eps_final = 1e-5
     eps_init = 1e2
     seed = 1234
@@ -25,7 +25,7 @@ if __name__ == "__main__":
     ]
 
     # Grid parameters
-    Ns = np.array([100, 1000, 4000])
+    Ns = np.array([100, 1000, 5000])
     Ts = np.array([2, 10, 25, 50, 100, 200, 500])
     Ps = {N: (budget/N)/Ts for N in Ns}
     print("-"*28)
@@ -40,8 +40,6 @@ if __name__ == "__main__":
     OUTS = {
         'ghums': [],
         'smc': [],
-        'ghums-end': [],
-        'smc-end': [],
         'settings': {
             'Ps': Ps,
             'Ns': Ns,
@@ -73,20 +71,10 @@ if __name__ == "__main__":
                               snug_target=0.3, snug_min_step=1e-30, snug_max_step=10.0, min_pm=1e-2, verbose=verbose,
                               rng=rng)
             OUTS['ghums'].append(out_ghums)
-            # GHUMS-Endpoint
-            # out_ghums_end = ghums(x=x0, v=v0, N=N, T=T, funcs=test_functions, epsilons=epsilons, p_thug=p_thug,
-            #                       step_thug=step_thug, step_snug=step_snug, endpoint=True, adapt_snug=True,
-            #                       snug_target=0.3, snug_min_step=1e-30, snug_max_step=10.0, min_pm=1e-2,
-            #                       verbose=verbose, rng=rng)
-            # OUTS['ghums-end'].append(out_ghums_end)
             # Run SMC sampler on this sequence of epsilons
             out_smc = smc(x=x0, epsilons=epsilons, N=N, T=T, step_thug=step_thug, step_snug=step_snug, p_thug=p_thug,
                           snug_target=0.5, min_ap=1e-2, verbose=False, rng=rng, mode='product')
             OUTS['smc'].append(out_smc)
-            # Run SMC sampler endpoint
-            # out_smc_end = smc(x=x0, epsilons=epsilons, N=N, T=T, step_thug=step_thug, step_snug=step_snug,
-            #                   p_thug=p_thug, snug_target=0.5, min_ap=1e-2, verbose=False, rng=rng, mode='endpoint')
-            # OUTS['smc-end'].append(out_smc_end)
     # Save results
     with open("data/ghums_vs_smc_budget_{}.pkl".format(budget), "wb") as f:
         pickle.dump(OUTS, f)
