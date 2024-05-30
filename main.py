@@ -10,7 +10,7 @@ from smc_functions import smc
 if __name__ == "__main__":
     # Settings
     d = 2
-    budget = 4_000_000
+    budget = 8_000_000
     eps_final = 1e-5
     eps_init = 1e2
     seed = 1234
@@ -25,15 +25,15 @@ if __name__ == "__main__":
     ]
 
     # Grid parameters
-    Ps = [25, 50, 100, 200, 500, 1000]
-    Ns = [100, 500, 1000, 2000, 4000]
-    Ts = (budget / np.outer(Ps, Ns)).astype(np.int32)
+    Ns = np.array([100, 1000, 4000])
+    Ts = np.array([2, 10, 25, 50, 100, 200, 500])
+    Ps = {N: (budget/N)/Ts for N in Ns}
     print("-"*28)
     print("NTP budget: ", budget)
-    print("\tPs: ", Ps)
     print("\tNs: ", Ns)
-    print("\tTs: \n", Ts)
-    print("Budgets: \n", np.outer(Ps, Ns) * Ts)
+    print("\tTs:", Ts)
+    print("\tPs: \n", "\n".join([f"\t\t{N}: {Ps[N]}" for N in Ns]))
+    print("Budgets: ", np.unique([N*Ps[N]*Ts for N in Ns]))
     print("-" * 28)
 
     # STORAGE
@@ -55,11 +55,11 @@ if __name__ == "__main__":
         }
     }
 
-    for pi, P in enumerate(Ps):
-        print("P: ", P)
-        for ni, N in enumerate(Ns):
-            print("\tN: ", N, " T: ", Ts[pi, ni])
-            T = Ts[pi, ni]  # Grab number of integration steps
+    for ni, N in enumerate(Ns):
+        print("N: ", N)
+        for ti, T in enumerate(Ts):
+            P = int(Ps[N][ti])
+            print("\tT: ", T, " P: ", P)
             # Generate initial particles
             x0 = rng.normal(size=(N, d))
             v0 = rng.normal(size=(N, d))
@@ -72,11 +72,9 @@ if __name__ == "__main__":
                               rng=rng)
             OUTS['ghums'].append(out_ghums)
             # Run SMC sampler on this sequence of epsilons
-            # TODO: Add test functions implementation
             out_smc = smc(x=x0, epsilons=epsilons, N=N, T=T, step_thug=step_thug, step_snug=step_snug, p_thug=p_thug,
-                          snug_target=0.5, min_ap=1e-2, verbose=True, rng=rng)
+                          snug_target=0.5, min_ap=1e-2, verbose=False, rng=rng, mode='product')
             OUTS['smc'].append(out_smc)
-
     # Save results
     with open("data/ghums_vs_smc.pkl", "wb") as f:
         pickle.dump(OUTS, f)
